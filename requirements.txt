@@ -1,4 +1,4 @@
-pyspark==3.5.0
+pyspark
 streamlit
 pandas
 requests
