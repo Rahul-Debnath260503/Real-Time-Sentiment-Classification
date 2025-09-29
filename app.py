@@ -1,88 +1,70 @@
-# app.py
-
 import streamlit as st
-import pandas as pd
 import requests
-from pyspark.sql import SparkSession
-from pyspark.ml import PipelineModel  # To load saved PySpark model
+from textblob import TextBlob
+import pandas as pd
 
-# ---------------------------
-# 1. Initialize Spark Session
-# ---------------------------
-spark = SparkSession.builder.appName("NewsSentimentApp").getOrCreate()
+# Set up your NewsAPI key
+API_KEY = "f923b3c1b261dba46561aa6c95a5bc54"
 
-# ---------------------------
-# 2. Load Trained PySpark Model
-# ---------------------------
-# Assume you have saved your trained model in folder "sentiment_model"
-# Save after training using: model.write().overwrite().save("sentiment_model")
-model = PipelineModel.load("D:\news_sentimental\sentiment_model\sentiment_model")
-
-# ---------------------------
-# 3. Fetch Live News from GNews
-# ---------------------------
-st.sidebar.title("Settings")
-api_key = st.sidebar.text_input("Enter GNews API Key", value="f923b3c1b261dba46561aa6c95a5bc54")
-num_articles = st.sidebar.slider("Number of Headlines to Fetch", 5, 50, 10)
-
-@st.cache_data(ttl=3600)  # Cache results for 1 hour
-def fetch_headlines(api_key, max_articles):
-    url = f"https://gnews.io/api/v4/top-headlines?token={api_key}&lang=en&max={max_articles}"
+# Function to fetch news from NewsAPI
+def fetch_news(query):
+    url = f"https://newsapi.org/v2/everything?q={query}&language=en&pageSize=50&apiKey={API_KEY}"
     response = requests.get(url)
-    data = response.json()
-    headlines = [article['title'] for article in data.get("articles", [])]
-    return headlines
+    articles = response.json().get("articles", [])
+    return articles
 
-if api_key != "YOUR_GNEWS_API_KEY":
-    headlines = fetch_headlines(api_key, num_articles)
-else:
-    st.warning("Please enter your GNews API Key in the sidebar to fetch headlines.")
-    headlines = []
+# Function to analyze sentiment
+def analyze_sentiment(text):
+    if not text:
+        return "neutral"
+    score = TextBlob(text).sentiment.polarity
+    return "positive" if score > 0 else "negative" if score < 0 else "neutral"
 
-# ---------------------------
-# 4. Convert Headlines to PySpark DataFrame
-# ---------------------------
-if headlines:
-    headline_tuples = [(h,) for h in headlines]
-    df_headlines = spark.createDataFrame(headline_tuples, ["headline"])
+# Streamlit UI
+st.set_page_config(page_title="Real-Time News Sentiment", layout="wide")
+st.title("📰 Real-Time News Sentiment Analysis")
 
-    # ---------------------------
-    # 5. Classify Headlines with ML Model
-    # ---------------------------
-    predictions = model.transform(df_headlines)
+# Query Input
+query = st.text_input("Enter a news topic (e.g., AI, sports, elections):", value="Artificial Intelligence")
 
-    # Convert to Pandas for Streamlit visualization
-    df_pandas = predictions.select("headline", "prediction").toPandas()
+if query:
+    with st.spinner("Fetching and analyzing news..."):
+        articles = fetch_news(query)
+        if not articles:
+            st.warning("No news articles found.")
+        else:
+            titles = []
+            descriptions = []
+            sentiments = []
 
-    # Map numeric labels to sentiment names
-    label_map = {0: "Negative", 1: "Positive", 2: "Neutral", 3: "Compound"}
-    df_pandas["Sentiment"] = df_pandas["prediction"].map(label_map)
+            for article in articles:
+                title = article["title"]
+                desc = article["description"] or ""
+                sentiment = analyze_sentiment(desc)
 
-    # ---------------------------
-    # 6. Streamlit UI
-    # ---------------------------
-    st.title("📰 Real-Time News Sentiment Dashboard")
-    st.markdown("Classifying latest news headlines into **Positive, Negative, Neutral, and Compound** categories using PySpark ML.")
+                titles.append(title)
+                descriptions.append(desc)
+                sentiments.append(sentiment)
 
-    # Filter by sentiment
-    sentiment_filter = st.multiselect("Filter by Sentiment", options=list(label_map.values()), default=list(label_map.values()))
-    df_filtered = df_pandas[df_pandas["Sentiment"].isin(sentiment_filter)]
+            # Create DataFrame
+            df = pd.DataFrame({
+                "Title": titles,
+                "Description": descriptions,
+                "Sentiment": sentiments
+            })
 
-    # Display table of headlines
-    st.subheader("Latest Headlines")
-    st.dataframe(df_filtered[["headline", "Sentiment"]])
+            # Display sentiment counts
+            st.subheader("📊 Sentiment Distribution")
+            sentiment_counts = df["Sentiment"].value_counts()
+            st.bar_chart(sentiment_counts)
 
-    # Display sentiment distribution
-    st.subheader("Sentiment Distribution")
-    sentiment_counts = df_filtered["Sentiment"].value_counts()
-    st.bar_chart(sentiment_counts)
+            # Filter option
+            st.subheader("🔍 View Articles by Sentiment")
+            selected_sentiment = st.radio("Select Sentiment", ["all", "positive", "neutral", "negative"])
+            if selected_sentiment != "all":
+                filtered_df = df[df["Sentiment"] == selected_sentiment]
+            else:
+                filtered_df = df
 
-    # Optional: Top headlines by sentiment
-    st.subheader("Top Headlines by Sentiment")
-    for sentiment in sentiment_filter:
-        st.markdown(f"**{sentiment} Headlines:**")
-        top_headlines = df_filtered[df_filtered["Sentiment"] == sentiment]["headline"].tolist()
-        for i, h in enumerate(top_headlines, start=1):
-            st.write(f"{i}. {h}")
-else:
-    st.info("Waiting for headlines to display. Enter your GNews API Key.")
+            # Display Data
+            st.dataframe(filtered_df[["Title", "Sentiment"]])
