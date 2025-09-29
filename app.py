@@ -16,7 +16,7 @@ spark = SparkSession.builder.appName("NewsSentimentApp").getOrCreate()
 # ---------------------------
 # Assume you have saved your trained model in folder "sentiment_model"
 # Save after training using: model.write().overwrite().save("sentiment_model")
-model = PipelineModel.load("D:\news_sentimental\sentiment_model")
+model = PipelineModel.load("D:\news_sentimental\sentiment_model\sentiment_model")
 
 # ---------------------------
 # 3. Fetch Live News from GNews
@@ -33,7 +33,7 @@ def fetch_headlines(api_key, max_articles):
     headlines = [article['title'] for article in data.get("articles", [])]
     return headlines
 
-if api_key != "f923b3c1b261dba46561aa6c95a5bc54":
+if api_key != "YOUR_GNEWS_API_KEY":
     headlines = fetch_headlines(api_key, num_articles)
 else:
     st.warning("Please enter your GNews API Key in the sidebar to fetch headlines.")
